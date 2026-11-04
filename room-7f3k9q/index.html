@@ -95,6 +95,14 @@ button{font-family:inherit;cursor:pointer}
   #choice .btn{font-size:13px;padding:6px 10px}
   #moreBtn{right:6px;bottom:6px}
 }
+#consentScreen{z-index:30;background:radial-gradient(ellipse at 50% 30%,rgba(40,10,20,.97),rgba(6,2,4,.99) 75%)}
+#consentScreen .box{max-width:600px;text-align:left;border:1px solid rgba(217,178,95,.6);border-radius:16px;padding:18px 22px;background:rgba(25,8,14,.85);box-shadow:0 0 0 3px rgba(90,15,30,.5)}
+#consentScreen h1{font-size:clamp(22px,4.6vw,34px);text-align:center}
+#consentScreen p{color:#e6d4c8;font-size:15px;line-height:1.55;max-width:none;margin:10px 0}
+#consentScreen .age{color:#ffb3c0;font-weight:bold;text-align:center}
+#consentScreen .btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+#consentScreen a.btn{text-decoration:none;font-size:16px;padding:10px 22px;margin-top:18px;opacity:.8}
+.screen a.btn{text-decoration:none;display:inline-block}
 </style>
 </head>
 <body>
@@ -148,7 +156,16 @@ button{font-family:inherit;cursor:pointer}
     <div id="adv">▼</div>
   </div>
 </div>
-<div class="screen" id="titleScreen">
+<div class="screen" id="consentScreen">
+  <div class="box">
+    <h1>Content &amp; consent notice</h1>
+    <p class="age">Adults only (18+). Explicit sexual content.</p>
+    <p>This is a work of fiction. All characters are fictional adults. None of them represent or are based on real people.</p>
+    <p>In this story, <b>Ophion</b> has privately agreed with the landlord to a <b>consensual-non-consent (CNC) roleplay deal</b>, including dream and bind scenarios, with the safeword <b>“Roppongi”</b>. His resistance, insults and refusals are part of the game he agreed to.</p>
+    <div class="btns"><button class="btn" id="consentBtn">I understand, enter</button><a class="btn" href="../">Leave</a></div>
+  </div>
+</div>
+<div class="screen hide" id="titleScreen">
   <div class="orn">◆ ◆ ◆</div>
   <h1>Bara Fetish Condo</h1>
   <h2>Scene 1: My Beloved Husband</h2>
@@ -161,7 +178,7 @@ button{font-family:inherit;cursor:pointer}
   <h1>Scene complete</h1>
   <h2>My Beloved Husband</h2>
   <p id="endStats"></p>
-  <button class="btn" id="replayBtn">Replay</button>
+  <div><button class="btn" id="replayBtn">Replay</button> <a class="btn" id="nextLink" href="scene2.html">Next: Scene 2 ▶</a></div>
 </div>
 <script>
 "use strict";
@@ -233,7 +250,7 @@ function setPortrait(l){
 }
 
 /* ---------- state ---------- */
-let mode='title';         // 'vn' | 'touch' | 'title' | 'end'
+let mode='consent';         // 'vn' | 'touch' | 'title' | 'end'
 let queue=[], qi=0, onQueueDone=null;
 let panelIdx=-1, touches=0, totalTouches=0, showHS=false;
 const lastPick={};
@@ -306,8 +323,11 @@ function advance(){
 }
 dlg.addEventListener('click', ()=>{ if (mode==='trans') finishTrans(); else advance(); });
 frame.addEventListener('click', e=>{ if (mode==='vn') advance(); });
+function acceptConsent(){ document.getElementById('consentScreen').classList.add('hide'); document.getElementById('titleScreen').classList.remove('hide'); mode='title'; }
+document.getElementById('consentBtn').addEventListener('click', acceptConsent);
 addEventListener('keydown', e=>{
   if (e.key===' '||e.key==='Enter'){
+    if (mode==='consent'){ e.preventDefault(); acceptConsent(); return; }
     if (mode==='title'){ e.preventDefault(); start(); return; }
     if (mode==='vn'){ e.preventDefault(); advance(); }
     else if (mode==='trans'){ e.preventDefault(); finishTrans(); }
