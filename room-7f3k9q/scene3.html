@@ -1012,59 +1012,72 @@ function playSlitOpen(){
   seg = [a, b];
   try { vid.playbackRate = RM ? 1.2 : 1.08; } catch(_){}
 
+  const unlock = ()=>{ if (tok === slitOpenTok) slitOpenOn = false; };
+
   const restore = ()=>{
     if (tok !== slitOpenTok) return;
     try { vid.playbackRate = 1; } catch(_){}
     segOnce = false;
     if (home) seg = home;
     else if (SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
-    const done = ()=>{
+    if (!seg){ unlock(); return; }
+    const target = seg[0] + Math.min(1.4, (seg[1]-seg[0]) * 0.35);
+    let tries = 0;
+    const settle = ()=>{
       if (tok !== slitOpenTok) return;
-      slitOpenOn = false;                 // only release loop guard after we're back in-range
-      vid.play().catch(()=>{});
+      const t = vid.currentTime;
+      if (t >= seg[0] - 0.02 && t <= seg[1] - 0.05 && Math.abs(t - target) < 0.55){
+        unlock();
+        vid.play().catch(()=>{});
+        return;
+      }
+      if (++tries > 16){
+        try { vid.currentTime = seg[0] + 0.15; } catch(_){}
+        unlock();
+        vid.play().catch(()=>{});
+        return;
+      }
+      try { vid.currentTime = target; } catch(_){}
+      setTimeout(settle, 40);
     };
-    if (!seg){ done(); return; }
-    const mid = (seg[0] + seg[1]) / 2;
-    const onSeeked = ()=>{ vid.removeEventListener('seeked', onSeeked); done(); };
-    vid.addEventListener('seeked', onSeeked);
-    try {
-      if (Math.abs(vid.currentTime - mid) < 0.05){ vid.removeEventListener('seeked', onSeeked); done(); }
-      else vid.currentTime = mid;
-    } catch(_){ vid.removeEventListener('seeked', onSeeked); done(); }
+    try { vid.pause(); } catch(_){}
+    settle();
   };
 
   const finish = ()=>{
     if (tok !== slitOpenTok) return;
     try { vid.pause(); } catch(_){}
-    setTimeout(restore, RM ? 260 : 720);
+    setTimeout(restore, RM ? 240 : 680);
   };
 
+  let watching = false;
   const watch = ()=>{
-    if (tok !== slitOpenTok) return;
-    if (vid.readyState >= 1 && vid.currentTime >= b - 0.07){ finish(); return; }
+    if (tok !== slitOpenTok || !watching) return;
+    if (vid.readyState >= 1 && vid.currentTime >= b - 0.07){ watching = false; finish(); return; }
     requestAnimationFrame(watch);
   };
 
   const startPlay = ()=>{
     if (tok !== slitOpenTok) return;
+    watching = true;
     const p = vid.play();
     if (p && p.catch) p.catch(()=>{});
     requestAnimationFrame(watch);
-    // safety: if play/seek stalls, restore so touch mode is never stuck
-    setTimeout(()=>{ if (tok === slitOpenTok && slitOpenOn) finish(); }, RM ? 1600 : 4200);
+    // safety net only — long enough to let the open beat play through
+    setTimeout(()=>{ if (tok === slitOpenTok && slitOpenOn && watching){ watching = false; finish(); } }, RM ? 2000 : 5500);
   };
 
   const seekToOpen = ()=>{
     if (tok !== slitOpenTok) return;
-    const onSeeked = ()=>{
-      vid.removeEventListener('seeked', onSeeked);
-      startPlay();
+    let tries = 0;
+    const arm = ()=>{
+      if (tok !== slitOpenTok) return;
+      if (Math.abs(vid.currentTime - a) < 0.12){ startPlay(); return; }
+      if (++tries > 16){ startPlay(); return; }
+      try { vid.currentTime = a; } catch(_){}
+      setTimeout(arm, 40);
     };
-    vid.addEventListener('seeked', onSeeked);
-    try {
-      if (Math.abs(vid.currentTime - a) < 0.04) { vid.removeEventListener('seeked', onSeeked); startPlay(); }
-      else vid.currentTime = a;
-    } catch(_){ vid.removeEventListener('seeked', onSeeked); startPlay(); }
+    arm();
   };
 
   if (vid.readyState >= 1) seekToOpen();
