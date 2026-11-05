@@ -1014,18 +1014,23 @@ function playSlitOpen(){
 
   const restore = ()=>{
     if (tok !== slitOpenTok) return;
-    slitOpenOn = false;
     try { vid.playbackRate = 1; } catch(_){}
     segOnce = false;
     if (home) seg = home;
     else if (SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
-    if (seg){
-      const mid = (seg[0] + seg[1]) / 2;
-      const back = ()=>{ if (tok !== slitOpenTok) return; vid.play().catch(()=>{}); };
-      const onSeeked = ()=>{ vid.removeEventListener('seeked', onSeeked); back(); };
-      vid.addEventListener('seeked', onSeeked);
-      try { vid.currentTime = mid; } catch(_){ back(); }
-    }
+    const done = ()=>{
+      if (tok !== slitOpenTok) return;
+      slitOpenOn = false;                 // only release loop guard after we're back in-range
+      vid.play().catch(()=>{});
+    };
+    if (!seg){ done(); return; }
+    const mid = (seg[0] + seg[1]) / 2;
+    const onSeeked = ()=>{ vid.removeEventListener('seeked', onSeeked); done(); };
+    vid.addEventListener('seeked', onSeeked);
+    try {
+      if (Math.abs(vid.currentTime - mid) < 0.05){ vid.removeEventListener('seeked', onSeeked); done(); }
+      else vid.currentTime = mid;
+    } catch(_){ vid.removeEventListener('seeked', onSeeked); done(); }
   };
 
   const finish = ()=>{
