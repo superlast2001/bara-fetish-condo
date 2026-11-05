@@ -28,6 +28,16 @@ button{font-family:inherit;cursor:pointer}
 #frame img.base,#frame canvas{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none;-webkit-user-drag:none;pointer-events:none}
 #frame.dim img.base,#frame.dim #chestC{filter:blur(6px) brightness(.35)}
 #under,#bob{opacity:0}
+/* POV ride bob: player body (bottom of frame) bounces; Ophion's video stays frozen/still underneath */
+#rideUnder,#ride{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;opacity:0;z-index:2}
+#rideUnder.on,#ride.on{opacity:1}
+#ride{animation:rideBob var(--ride-dur,0.55s) ease-in-out infinite;will-change:transform;transform-origin:50% 100%}
+#frame.still #ride{animation:rideBob var(--ride-dur,0.55s) ease-in-out infinite} /* keep ride bob even when breath is still */
+@keyframes rideBob{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(calc(var(--ride-amp,10px) * -1))}
+}
+#vid.ride-cut{-webkit-mask-image:linear-gradient(#000 0%,#000 52%,transparent 70%);mask-image:linear-gradient(#000 0%,#000 52%,transparent 70%)}
 #breath{position:absolute;inset:0;transform-origin:50% 100%;animation:breathe var(--bdur,3.8s) ease-in-out infinite;will-change:transform}
 #chestC{transform-origin:var(--cox,40%) var(--coy,54%);animation:chestRise var(--bdur,3.8s) ease-in-out infinite;will-change:transform}
 @keyframes breathe{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(-3px) scaleY(1.012)}}
@@ -138,7 +148,7 @@ button{font-family:inherit;cursor:pointer}
 .mbox.carry::after{content:"👆";position:absolute;top:-70%;left:50%;transform:translateX(-50%);font-size:clamp(14px,2.4vw,24px);animation:bob 1s ease-in-out infinite alternate}
 @keyframes boxGlow{from{filter:drop-shadow(0 4px 5px rgba(70,40,15,.22)) drop-shadow(0 0 2px rgba(226,198,255,.6))}to{filter:drop-shadow(0 0 4px #ecd8ff) drop-shadow(0 0 12px rgba(200,120,255,.9))}}
 @keyframes bob{to{transform:translate(-50%,-25%)}}
-#me{position:absolute;left:57%;top:66%;width:clamp(18px,3.3%,64px);transform:translate(-50%,-100%);z-index:2;animation:idle 2.6s ease-in-out infinite}
+#me{position:absolute;left:57%;top:66%;width:clamp(31px,5.6%,109px);transform:translate(-50%,-100%);z-index:2;animation:idle 2.6s ease-in-out infinite}
 #me .body{position:relative;width:100%;transition:transform .15s;transform-origin:50% 100%}
 #me .spr{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;pointer-events:none;filter:drop-shadow(0 1px 1.2px rgba(60,35,15,.22))}
 #me .coat{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 35% 20%,rgba(255,235,255,.95) 0 6%,rgba(0,0,0,0) 14%),linear-gradient(160deg,#f0c8ff,#a94cf5 50%,#5a1aa8);-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
@@ -270,6 +280,8 @@ body{background:radial-gradient(ellipse at 50% -10%,#3a1624 0%,#1a0b12 55%,#0f07
           <source src="scene3.mp4" type='video/mp4; codecs="avc1.640028"'>
           <source src="scene3.webm" type='video/webm; codecs="vp9"'>
         </video>
+        <canvas id="rideUnder" aria-hidden="true"></canvas>
+        <canvas id="ride" aria-hidden="true"></canvas>
         <div id="room"></div>
         <svg id="strands" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
         <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
@@ -429,15 +441,74 @@ function setLook(k){ for (const el of [frame, $('hud')]){ el.classList.remove('d
 
 /* ---------- background: the living-room still or a looped video beat ---------- */
 let seg=null, segOnce=false;
-function showRoom(){ seg=null; vid.pause(); vid.classList.add('hide'); base.classList.remove('hide'); $('room').classList.remove('hide'); base.src=IMG.room; curKey='room'; fitFrame(); setBreath(5); }
+
+/* ---------- POV ride bob: player (bottom cutout) bounces; Ophion's frozen video stays still ---------- */
+let rideOn=false, rideTok=0;
+function stopRideBob(){
+  rideOn=false; rideTok++;
+  const u=$('rideUnder'), r=$('ride');
+  if (u){ u.classList.remove('on'); try{u.getContext('2d').clearRect(0,0,u.width||1,u.height||1);}catch(_){ } }
+  if (r){ r.classList.remove('on'); r.style.animation='none'; try{r.getContext('2d').clearRect(0,0,r.width||1,r.height||1);}catch(_){ } }
+  vid.classList.remove('ride-cut');
+  if (frame.classList.contains('still')) setStill(false);  // restore idle breath after ride
+}
+function paintRideCut(c, w, h){
+  // Feather with destination-in (no getImageData — file:// video taints the canvas).
+  const g=c.getContext('2d'); c.width=w; c.height=h; g.clearRect(0,0,w,h);
+  try { g.drawImage(vid, 0, 0, w, h); } catch(_){ return false; }
+  const grd=g.createLinearGradient(0, h*0.52, 0, h*0.70);
+  grd.addColorStop(0,'rgba(0,0,0,0)'); grd.addColorStop(1,'rgba(0,0,0,1)');
+  g.globalCompositeOperation='destination-in'; g.fillStyle=grd; g.fillRect(0,0,w,h);
+  g.globalCompositeOperation='source-over'; return true;
+}
+function startRideBob(kind){
+  // kind: 'sink' | 'hard' | 'cum' — amplitude/speed sell the player riding a still Ophion
+  const amp = kind==='cum' ? 16 : kind==='hard' ? 13 : 9;
+  const dur = kind==='cum' ? 0.42 : kind==='hard' ? 0.48 : 0.58;
+  const tok=++rideTok; rideOn=true;
+  frame.style.setProperty('--ride-amp', amp+'px');
+  frame.style.setProperty('--ride-dur', dur+'s');
+  setStill(true);                         // kill breath so Ophion doesn't sway
+  const arm = ()=>{
+    if (tok!==rideTok) return;
+    if (vid.readyState<2){ setTimeout(arm, 80); return; }
+    if (seg){ const mid=(seg[0]+seg[1])/2; try { vid.currentTime = mid; } catch(_){ } }
+    const go=()=>{
+      if (tok!==rideTok) return;
+      const w=vid.videoWidth||680, h=vid.videoHeight||480;
+      const u=$('rideUnder'), r=$('ride');
+      if (!paintRideCut(u,w,h) || !paintRideCut(r,w,h)){ setTimeout(go, 60); return; }
+      vid.pause(); vid.classList.add('ride-cut');
+      u.classList.add('on'); r.classList.add('on');
+      r.style.animation='none'; void r.offsetWidth; r.style.animation='';
+    };
+    // wait a tick so currentTime seeks
+    setTimeout(go, 60);
+  };
+  arm();
+}
+function rideKindFor(){
+  if (phase==='climax') return 'cum';
+  if (panelIdx>=3) return 'cum';
+  if (panelIdx>=2) return 'hard';
+  if (panelIdx>=1) return 'sink';
+  return null;
+}
+function syncRideBob(){
+  const k=rideKindFor();
+  if (k) startRideBob(k); else stopRideBob();
+}
+
+function showRoom(){ stopRideBob(); seg=null; vid.pause(); vid.classList.add('hide'); base.classList.remove('hide'); $('room').classList.remove('hide'); base.src=IMG.room; curKey='room'; fitFrame(); setBreath(5); }
 function showVideo(i, once){
+  stopRideBob();
   seg = SCRIPT.segments[i]; segOnce = !!once; curKey='video'; fitFrame(); setBreath(once ? 1.2 : BREATH[i]||2);
   base.classList.add('hide'); $('room').classList.add('hide'); $('strands').getAnimations().forEach(x=>x.cancel()); $('strands').style.opacity=0; $('strands').innerHTML=''; vid.classList.remove('hide');
   try { vid.currentTime = seg[0] + 0.02; } catch(_){}
   const p = vid.play(); if (p && p.catch) p.catch(()=>{});
 }
 (function loop(){
-  if (seg && vid.readyState>=1){
+  if (seg && vid.readyState>=1 && !rideOn){
     const t = vid.currentTime;
     if (t >= seg[1]-0.06 || t < seg[0]-0.5 || vid.ended){
       if (segOnce){ if (!vid.paused) vid.pause(); }
@@ -509,7 +580,7 @@ function setTitle(sub){ $('ttl').innerHTML = 'Bara Fetish Condo<small>' + sub + 
 function flashChapter(t){ chapter.textContent=t; chapter.classList.remove('hide'); clearTimeout(flashChapter.t); flashChapter.t=setTimeout(()=>chapter.classList.add('hide'),1600); }
 function acceptConsent(){ $('consentScreen').classList.add('hide'); $('titleScreen').classList.remove('hide'); mode='title'; }
 function resetFx(){
-  setLook(''); $('transBtn').classList.add('hide'); lineHook=null;
+  setLook(''); $('transBtn').classList.add('hide'); lineHook=null; stopRideBob();
   $('goo').getAnimations().forEach(a=>a.cancel()); $('goo').style.opacity=0;
   $('glare').getAnimations().forEach(a=>a.cancel()); $('glare').style.opacity=0;
   $('strands').getAnimations().forEach(a=>a.cancel()); $('strands').style.opacity=0; $('strands').innerHTML='';
@@ -562,7 +633,7 @@ const OPH_FOR = {angry:'angry', shocked:'surprised', flustered:'blush', stern:'i
 const EU_AT = [62,77], OPH_AT = [49.5,68.5], OPH_STUCK = [53.6,67];
 const OPH_WALK = [1,2,3,4,5,6,7,8].map(i=>'oph_walk'+i);
 let ophLock = null;
-function chrUnit(){ const m=$('me'); const w = m ? m.offsetWidth : Math.min(128, Math.max(54, frame.clientWidth*.086)); return w*2.08; }
+function chrUnit(){ const m=$('me'); const w = m ? m.offsetWidth : Math.min(109, Math.max(31, frame.clientWidth*.056)); return w*2.08; }
 function setChr(el, key){
   if (!el || !IMG[key]) return; const im=el.querySelector('.cs'), c=CHIBI[key];
   el.dataset.k=key; if (im.getAttribute('src')!==IMG[key]) im.src=IMG[key];
@@ -720,6 +791,8 @@ function enterPanel(i){
   setTitle('Scene 3 — Sticky ' + p.n + ' / ' + SCRIPT.panels.length);
   if (curKey!=='video' || seg!==SCRIPT.segments[i]) showVideo(i);
   buildSpots(ZONES); updateCounter(); counterEl.classList.remove('hide');
+  // panels 2–4 (+ transitions): player is on him — bob the POV body, freeze Ophion
+  syncRideBob();
   playLines(p.opening, enterTouch);
 }
 function enterTouch(){
@@ -747,6 +820,9 @@ function chooseAction(){
   const from = panelIdx;
   showLine({who:'Ophion', dir:'', text:ACTIONS[from][1], expr:ACTIONS[from][2], act:ACTIONS[from][3]}, {pulse:true});
   struggle(1); splat('*SQUELCH*', 50, 55);
+  // sinking / fucking harder / cumming: player does the bouncing work on a still Ophion
+  if (from>=1) startRideBob(from>=3 ? 'cum' : from>=2 ? 'hard' : 'sink');
+  else if (from===0) { /* coax — not mounted yet */ }
   transNext = ()=> from < SCRIPT.panels.length-1 ? crossfade(()=>enterPanel(from+1)) : runClimax();
   transTimer = setTimeout(finishTrans, 3400);
 }
@@ -755,12 +831,12 @@ function finishTrans(){ if (!transNext) return; clearTimeout(transTimer); finish
 /* ----- 5. climax, then the slime finally lets go; Eurynome comes home ----- */
 function runClimax(){
   phase='climax'; clearSpots(); counterEl.classList.add('hide'); setTitle('Scene 3 — Over the edge');
-  crossfade(()=>showVideo(4, true));
+  crossfade(()=>{ showVideo(4, true); startRideBob('cum'); });
   $('flash').animate([{opacity:0},{opacity:.8,offset:.2},{opacity:0}],{duration:900});
   playLines(SCRIPT.climax, runUnstick);
 }
 function runUnstick(){
-  phase='unstick'; ending='unstuck'; setTitle('Scene 3 — Unstuck');
+  phase='unstick'; ending='unstuck'; setTitle('Scene 3 — Unstuck'); stopRideBob();
   const fw=frame.clientWidth, fh=frame.clientHeight;
   // the slime goes slack: strands sag and snap, drops rain down, then back to the living room
   vid.animate([{filter:'none'},{filter:'hue-rotate(25deg) saturate(1.6) blur(1px)',offset:.5},{filter:'none'}],{duration:RM?200:1400});
