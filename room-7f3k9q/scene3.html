@@ -145,6 +145,8 @@ button{font-family:inherit;cursor:pointer}
 #frame.day{box-shadow:0 0 0 4px rgba(255,214,150,.5),0 10px 40px rgba(0,0,0,.7)}
 #frame.slime{box-shadow:0 0 0 4px rgba(120,40,160,.6),0 0 40px rgba(170,70,255,.35)}
 #vid{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;background:#000}
+#vidOpen{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;background:#000;z-index:2}
+#vidOpen.hide{display:none!important}
 /* transform button */
 #transBtn{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8;font-size:clamp(16px,3vw,24px);padding:12px 26px;border-color:#e2c6ff;color:#fff;background:radial-gradient(circle at 40% 35%,#c47cff,#6b22c2 60%,#33105e);box-shadow:0 0 22px rgba(190,110,255,.9);animation:appPulse 1.1s ease-in-out infinite alternate}
 @keyframes appPulse{to{box-shadow:0 0 40px rgba(210,140,255,1);transform:translate(-50%,-50%) scale(1.06)}}
@@ -291,6 +293,10 @@ body{background:radial-gradient(ellipse at 50% -10%,#3a1624 0%,#1a0b12 55%,#0f07
         <video id="vid" muted playsinline preload="auto" disablepictureinpicture class="hide">
           <source src="scene3.mp4" type='video/mp4; codecs="avc1.640028"'>
           <source src="scene3.webm" type='video/webm; codecs="vp9"'>
+        </video>
+        <video id="vidOpen" muted playsinline preload="auto" disablepictureinpicture class="hide">
+          <source src="slit-open.mp4" type='video/mp4; codecs="avc1.640028"'>
+          <source src="slit-open.webm" type='video/webm; codecs="vp9"'>
         </video>
         <canvas id="rideUnder" aria-hidden="true"></canvas>
         <canvas id="ride" aria-hidden="true"></canvas>
@@ -469,7 +475,7 @@ let seg=null, segOnce=false;
 /* ---------- POV ride bob: player (bottom cutout) bounces; Ophion's frozen video stays still ---------- */
 let rideOn=false, rideTok=0;
 function stopRideBob(){
-  rideOn=false; rideTok++; slitOpenTok++; slitOpenOn=false;
+  rideOn=false; rideTok++; cancelSlitOpen();
   const u=$('rideUnder'), r=$('ride'), td=$('tentDrive');
   if (u){ u.classList.remove('on'); try{u.getContext('2d').clearRect(0,0,u.width||1,u.height||1);}catch(_){ } }
   if (r){ r.classList.remove('on'); r.style.animation='none'; try{r.getContext('2d').clearRect(0,0,r.width||1,r.height||1);}catch(_){ } }
@@ -816,7 +822,7 @@ function runStuck(){
 
 /* ----- 4. the slime panels ----- */
 function enterPanel(i){
-  phase='slime'; panelIdx=i; touches=0; stayAt=0; lineHook=null; slitOpenTok++; slitOpenOn=false;
+  phase='slime'; panelIdx=i; touches=0; stayAt=0; lineHook=null; cancelSlitOpen();
   chapter.classList.add('hide');
   setLook('slime'); const p = SCRIPT.panels[i];
   setTitle('Scene 3 — Sticky ' + p.n + ' / ' + SCRIPT.panels.length);
@@ -995,44 +1001,50 @@ function touchSpot(name, e, gesture){
 
 /* ---------- slit open via VIDEO (tentacles pry his slit) + tap insert FX ---------- */
 let slitOpenTok = 0, slitOpenOn = false;
+const vidOpen = document.getElementById('vidOpen');
+function cancelSlitOpen(){
+  slitOpenTok++; slitOpenOn = false;
+  if (vidOpen){ try{vidOpen.pause();}catch(_){} vidOpen.classList.add('hide'); try{vidOpen.currentTime=0;}catch(_){} }
+}
+
 function playSlitOpen(){
-  // Cue the Scene 3 beat where sticky tentacles pry / spread his slit (panel 1 art), then resume the current panel loop.
-  // No purple floating .tent mirage coils — the video itself carries the tentacles.
+  // Play the dedicated open/pop clip (source scene4.mp4 0.20–4.80s): tentacles pry his slit wide and his cock pops out.
+  // That beat is NOT in scene3.mp4 (SEGMENTS start at source 6.3s). Overlay #vidOpen, then resume the panel loop.
+  // No purple floating .tent mirage coils.
   fx.querySelectorAll('.slitfx').forEach(o=>o.remove());
   slitOpenGlow();
-  if (curKey!=='video' || !SCRIPT.segments || !SCRIPT.segments[0] || rideOn) return;
+  if (curKey!=='video' || rideOn || !vidOpen) return;
   const tok = ++slitOpenTok;
-  const full = SCRIPT.segments[0];                 // panel 1: tentacles at his slit
-  const span = Math.max(0.8, full[1] - full[0]);
-  const a = full[0] + span * 0.52;                // latter half: pry / cock emerging from the slit
-  const b = full[1] - 0.06;
-  const home = seg ? [seg[0], seg[1]] : null;
+  const home = seg ? [seg[0], seg[1]] : (SCRIPT.segments && SCRIPT.segments[panelIdx] ? [...SCRIPT.segments[panelIdx]] : null);
+  const homeT = vid.currentTime;
   slitOpenOn = true;
-  segOnce = true;
-  seg = [a, b];
-  try { vid.playbackRate = RM ? 1.2 : 1.08; } catch(_){}
+  try { vid.pause(); } catch(_){}
 
   const unlock = ()=>{ if (tok === slitOpenTok) slitOpenOn = false; };
 
   const restore = ()=>{
     if (tok !== slitOpenTok) return;
-    try { vid.playbackRate = 1; } catch(_){}
-    segOnce = false;
+    try { vidOpen.pause(); } catch(_){}
+    vidOpen.classList.add('hide');
+    try { vidOpen.currentTime = 0; } catch(_){}
     if (home) seg = home;
-    else if (SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
-    if (!seg){ unlock(); return; }
-    const target = seg[0] + Math.min(1.4, (seg[1]-seg[0]) * 0.35);
+    else if (SCRIPT.segments && SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
+    segOnce = false;
+    try { vid.playbackRate = 1; } catch(_){}
+    const target = seg
+      ? (seg[0] + Math.min(1.4, (seg[1]-seg[0]) * 0.35))
+      : homeT;
     let tries = 0;
     const settle = ()=>{
       if (tok !== slitOpenTok) return;
       const t = vid.currentTime;
-      if (t >= seg[0] - 0.02 && t <= seg[1] - 0.05 && Math.abs(t - target) < 0.55){
+      if (seg && t >= seg[0] + 0.05 && t <= seg[1] - 0.08 && Math.abs(t - target) < 0.6){
         unlock();
         vid.play().catch(()=>{});
         return;
       }
-      if (++tries > 16){
-        try { vid.currentTime = seg[0] + 0.15; } catch(_){}
+      if (++tries > 18){
+        try { if (seg) vid.currentTime = seg[0] + 0.2; } catch(_){}
         unlock();
         vid.play().catch(()=>{});
         return;
@@ -1040,48 +1052,58 @@ function playSlitOpen(){
       try { vid.currentTime = target; } catch(_){}
       setTimeout(settle, 40);
     };
-    try { vid.pause(); } catch(_){}
     settle();
   };
 
   const finish = ()=>{
     if (tok !== slitOpenTok) return;
-    try { vid.pause(); } catch(_){}
-    setTimeout(restore, RM ? 240 : 680);
+    try { vidOpen.pause(); } catch(_){}
+    setTimeout(restore, RM ? 180 : 420);
   };
 
-  let watching = false;
-  const watch = ()=>{
-    if (tok !== slitOpenTok || !watching) return;
-    if (vid.readyState >= 1 && vid.currentTime >= b - 0.07){ watching = false; finish(); return; }
-    requestAnimationFrame(watch);
-  };
-
-  const startPlay = ()=>{
+  const onEnded = ()=>{
     if (tok !== slitOpenTok) return;
-    watching = true;
-    const p = vid.play();
-    if (p && p.catch) p.catch(()=>{});
-    requestAnimationFrame(watch);
-    // safety net only — long enough to let the open beat play through
-    setTimeout(()=>{ if (tok === slitOpenTok && slitOpenOn && watching){ watching = false; finish(); } }, RM ? 2000 : 5500);
+    vidOpen.removeEventListener('ended', onEnded);
+    finish();
   };
 
-  const seekToOpen = ()=>{
+  const startClip = ()=>{
+    if (tok !== slitOpenTok) return;
+    vidOpen.classList.remove('hide');
+    try { vidOpen.playbackRate = 1; } catch(_){}
+    vidOpen.addEventListener('ended', onEnded);
+    const p = vidOpen.play();
+    if (p && p.catch) p.catch(()=>{ finish(); });
+    // safety: clip is ~4.6s; don't strand the overlay
+    setTimeout(()=>{
+      if (tok !== slitOpenTok || !slitOpenOn) return;
+      if (vidOpen.ended || vidOpen.paused && vidOpen.currentTime > 0.2) finish();
+      else if (vidOpen.currentTime >= (vidOpen.duration || 4.5) - 0.08) finish();
+    }, RM ? 2800 : 6500);
+  };
+
+  const arm = ()=>{
     if (tok !== slitOpenTok) return;
     let tries = 0;
-    const arm = ()=>{
+    const go = ()=>{
       if (tok !== slitOpenTok) return;
-      if (Math.abs(vid.currentTime - a) < 0.12){ startPlay(); return; }
-      if (++tries > 16){ startPlay(); return; }
-      try { vid.currentTime = a; } catch(_){}
-      setTimeout(arm, 40);
+      if (vidOpen.readyState >= 2){
+        try { vidOpen.currentTime = 0; } catch(_){}
+        // brief settle then play from start
+        setTimeout(startClip, 30);
+        return;
+      }
+      if (++tries > 40){ unlock(); return; }
+      setTimeout(go, 50);
     };
-    arm();
+    go();
   };
 
-  if (vid.readyState >= 1) seekToOpen();
-  else vid.addEventListener('loadeddata', seekToOpen, {once:true});
+  if (vidOpen.readyState >= 1) arm();
+  else {
+    vidOpen.addEventListener('loadeddata', arm, {once:true});
+    try { vidOpen.load(); } catch(_){}
+  }
 }
 function slitOpenGlow(){
   // Soft flesh bloom at the slit only — reinforces "opening" without purple scribble overlays.
