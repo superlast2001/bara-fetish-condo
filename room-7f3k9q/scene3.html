@@ -30,17 +30,7 @@ button{font-family:inherit;cursor:pointer}
 #under,#bob{opacity:0}
 /* POV ride bob: player body (bottom of frame) bounces; Ophion's video stays frozen/still underneath */
 #rideUnder,#ride{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;opacity:0;z-index:2} /* unused POV cutouts kept in DOM for layout compatibility */
-#tentDrive{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;z-index:3;overflow:visible}
-#tentDrive.on{opacity:1}
-#tentDrive svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-#tentDrive .coil{fill:none;stroke:#b25cff;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgba(180,90,255,.85));opacity:.9;transform-origin:50% 20%;animation:tentYank var(--ride-dur,.5s) ease-in-out infinite}
-#tentDrive .coil.c2{animation-delay:calc(var(--ride-dur,.5s) * -.35);stroke:#9a4cff;opacity:.75}
-#tentDrive .coil.c3{animation-delay:calc(var(--ride-dur,.5s) * -.18);stroke:#c784ff;opacity:.8}
-@keyframes tentYank{
-  0%,100%{stroke-dashoffset:0;transform:scaleY(1) translateY(0)}
-  50%{stroke-dashoffset:8;transform:scaleY(.92) translateY(calc(var(--ride-amp,10px) * .35))}
-}
-/* Tentacles lead: Ophion's hips thrust while POV stays still (no player #ride bob). */
+/* Tentacles lead: Ophion's hips thrust while POV stays still. Guide/debug stroke overlays removed. */
 #vid.hip-drive{animation:hipDrive var(--ride-dur,.5s) ease-in-out infinite;transform-origin:50% 64%;will-change:transform}
 #frame.still #vid.hip-drive{animation:hipDrive var(--ride-dur,.5s) ease-in-out infinite}
 @keyframes hipDrive{
@@ -158,7 +148,7 @@ button{font-family:inherit;cursor:pointer}
 .mbox.carry::after{content:"👆";position:absolute;top:-70%;left:50%;transform:translateX(-50%);font-size:clamp(14px,2.4vw,24px);animation:bob 1s ease-in-out infinite alternate}
 @keyframes boxGlow{from{filter:drop-shadow(0 4px 5px rgba(70,40,15,.22)) drop-shadow(0 0 2px rgba(226,198,255,.6))}to{filter:drop-shadow(0 0 4px #ecd8ff) drop-shadow(0 0 12px rgba(200,120,255,.9))}}
 @keyframes bob{to{transform:translate(-50%,-25%)}}
-#me{position:absolute;left:57%;top:66%;width:clamp(68px,3.73%,109px);transform:translate(-50%,-100%);z-index:2;animation:idle 2.6s ease-in-out infinite}
+#me{position:absolute;left:57%;top:66%;width:clamp(54px,8.0%,148px);transform:translate(-50%,-100%);z-index:2;animation:idle 2.6s ease-in-out infinite}
 #me .body{position:relative;width:100%;transition:transform .15s;transform-origin:50% 100%}
 #me .spr{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;pointer-events:none;filter:drop-shadow(0 1px 1.2px rgba(60,35,15,.22))}
 #me .coat{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 35% 20%,rgba(255,235,255,.95) 0 6%,rgba(0,0,0,0) 14%),linear-gradient(160deg,#f0c8ff,#a94cf5 50%,#5a1aa8);-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
@@ -292,7 +282,6 @@ body{background:radial-gradient(ellipse at 50% -10%,#3a1624 0%,#1a0b12 55%,#0f07
         </video>
         <canvas id="rideUnder" aria-hidden="true"></canvas>
         <canvas id="ride" aria-hidden="true"></canvas>
-        <div id="tentDrive" aria-hidden="true"></div>
         <div id="room"></div>
         <svg id="strands" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
         <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
@@ -424,7 +413,7 @@ function fitFrame(){
   // pass 1 sizes the frame so % positions resolve; pass 2 uses the keep region at that size
   // Room mode zooms past cover so living-room furniture reads larger on phone; chibi % is
   // tuned so absolute sprite size stays ~the 23bcfcb bump (not shrunk to "fix" furniture).
-  const ROOM_ZOOM = 1.5;
+  const ROOM_ZOOM = 1.22;
   for (let pass=0; pass<2; pass++){
     const {k, f} = keepRegion(), kw=Math.max(5,k[2]-k[0])/100, kh=Math.max(5,k[3]-k[1])/100;
     const cover0 = Math.max(S.width, S.height*ar);
@@ -462,27 +451,15 @@ let seg=null, segOnce=false;
 let rideOn=false, rideTok=0;
 function stopRideBob(){
   rideOn=false; rideTok++;
-  const u=$('rideUnder'), r=$('ride'), td=$('tentDrive');
+  const u=$('rideUnder'), r=$('ride');
   if (u){ u.classList.remove('on'); try{u.getContext('2d').clearRect(0,0,u.width||1,u.height||1);}catch(_){ } }
   if (r){ r.classList.remove('on'); r.style.animation='none'; try{r.getContext('2d').clearRect(0,0,r.width||1,r.height||1);}catch(_){ } }
-  if (td){ td.classList.remove('on'); td.innerHTML=''; }
   vid.classList.remove('hip-drive','ride-cut');
   vid.style.animation='';
   if (frame.classList.contains('still')) setStill(false);  // restore idle breath after drive
 }
-function paintTentDrive(){
-  // Sticky coils that yank in time with hipDrive — tentacles lead Ophion's hips.
-  const td=$('tentDrive'); if (!td) return;
-  td.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">'
-    + '<path class="coil" stroke-width="2.2" d="M18 8 C12 28 22 42 30 55 C38 68 34 78 42 90"/>'
-    + '<path class="coil c2" stroke-width="1.8" d="M82 6 C90 26 78 40 70 54 C62 68 68 80 58 92"/>'
-    + '<path class="coil c3" stroke-width="2.4" d="M50 0 C46 22 54 36 50 52 C46 68 56 78 50 96"/>'
-    + '<path class="coil" stroke-width="1.6" d="M8 30 C20 38 28 48 36 62 C42 72 40 84 48 94"/>'
-    + '<path class="coil c2" stroke-width="1.6" d="M92 28 C80 36 72 50 64 64 C58 74 62 86 54 95"/>'
-    + '</svg>';
-}
 function startRideBob(kind){
-  // kind: 'sink' | 'hard' | 'cum' — tentacle-driven Ophion hip thrust; player POV stays still
+  // kind: 'sink' | 'hard' | 'cum' — tentacle-driven Ophion hip thrust; no purple guide overlays
   const amp = kind==='cum' ? 14 : kind==='hard' ? 11 : 8;
   const dur = kind==='cum' ? 0.40 : kind==='hard' ? 0.48 : 0.58;
   const tok=++rideTok; rideOn=true;
@@ -494,8 +471,6 @@ function startRideBob(kind){
   if (u) u.classList.remove('on');
   if (r){ r.classList.remove('on'); r.style.animation='none'; }
   vid.classList.remove('ride-cut');
-  paintTentDrive();
-  const td=$('tentDrive'); if (td) td.classList.add('on');
   const arm = ()=>{
     if (tok!==rideTok) return;
     if (vid.readyState<2){ setTimeout(arm, 80); return; }
@@ -656,7 +631,7 @@ const OPH_FOR = {angry:'angry', shocked:'surprised', flustered:'blush', stern:'i
 const EU_AT = [62,77], OPH_AT = [49.5,68.5], OPH_STUCK = [53.6,67];
 const OPH_WALK = [1,2,3,4,5,6,7,8].map(i=>'oph_walk'+i);
 let ophLock = null;
-function chrUnit(){ const m=$('me'); const w = m ? m.offsetWidth : Math.min(109, Math.max(68, frame.clientWidth*0.0373)); return w*2.08; }
+function chrUnit(){ const m=$('me'); const w = m ? m.offsetWidth : Math.min(148, Math.max(54, frame.clientWidth*0.08)); return w*2.08; }
 function setChr(el, key){
   if (!el || !IMG[key]) return; const im=el.querySelector('.cs'), c=CHIBI[key];
   el.dataset.k=key; if (im.getAttribute('src')!==IMG[key]) im.src=IMG[key];
