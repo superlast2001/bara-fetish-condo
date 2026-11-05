@@ -200,7 +200,7 @@ button{font-family:inherit;cursor:pointer}
 #goo{position:absolute;inset:0;pointer-events:none;z-index:7;opacity:0;background:radial-gradient(circle at 50% 60%,rgba(220,150,255,.95),rgba(140,40,220,.92) 35%,rgba(50,10,90,.97) 75%)}
 .blob{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f0c8ff,#9a3cf0 50%,#4a1080);pointer-events:none;z-index:8;box-shadow:0 0 18px rgba(190,110,255,.8)}
 /* tentacle mirage + slime drops */
-.tent{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;touch-action:manipulation;z-index:5;will-change:transform,opacity;opacity:0;transform-origin:50% 0;filter:drop-shadow(0 0 6px rgba(200,120,255,.9)) drop-shadow(0 0 14px rgba(150,60,255,.5))}
+.tent{display:none!important;position:absolute;left:0;top:0;pointer-events:none;opacity:0;transform-origin:50% 0}
 .tent svg{display:block;width:100%;height:100%;overflow:visible;pointer-events:none}
 .tent.retract{pointer-events:none}
 .slitfx{position:absolute;pointer-events:none;z-index:4;mix-blend-mode:normal;filter:drop-shadow(0 0 6px rgba(230,130,255,.85))}
@@ -479,8 +479,9 @@ function stopRideBob(){
   if (frame.classList.contains('still')) setStill(false);  // restore idle breath after drive
 }
 function paintTentDrive(){
-  // Sticky coils that yank in time with hipDrive — tentacles lead Ophion's hips.
+  // Purple guide strokes removed (same complaint as .tent mirage); hipDrive keeps the motion.
   const td=$('tentDrive'); if (!td) return;
+  td.classList.remove('on'); td.innerHTML=''; return;
   td.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">'
     + '<path class="coil" stroke-width="2.2" d="M18 8 C12 28 22 42 30 55 C38 68 34 78 42 90"/>'
     + '<path class="coil c2" stroke-width="1.8" d="M82 6 C90 26 78 40 70 54 C62 68 68 80 58 92"/>'
@@ -502,8 +503,7 @@ function startRideBob(kind){
   if (u) u.classList.remove('on');
   if (r){ r.classList.remove('on'); r.style.animation='none'; }
   vid.classList.remove('ride-cut');
-  paintTentDrive();
-  const td=$('tentDrive'); if (td) td.classList.add('on');
+  paintTentDrive(); // clears #tentDrive; do not add .on (no purple guide strokes)
   const arm = ()=>{
     if (tok!==rideTok) return;
     if (vid.readyState<2){ setTimeout(arm, 80); return; }
@@ -978,7 +978,7 @@ function touchSpot(name, e, gesture){
   const rough = ROUGH.has(name);
   const [x,y,r] = ripple(e); const px=x/r.width*100, py=y/r.height*100;
   touches++; totalTouches++; hint.classList.add('hide');
-  if (!(name==='Cock' && gesture==='slide')) tentacle(name, px, py);
+  // purple .tent mirage coils disabled — slitFx handles tap insert / slide open
   for (let k=0;k<3;k++) setTimeout(()=>drop(x+(Math.random()-.5)*30, y, r.height), 150+k*180);
   const p = SCRIPT.panels[panelIdx], lines = p.spots[name];
   const idx = pick(panelIdx+':'+name, lines), ln = lines[idx];
@@ -1066,6 +1066,7 @@ function retractTent(el){
   ],{duration:RM?220:320, easing:'ease-in', fill:'forwards'}).onfinish=()=>el.remove();
 }
 function tentacle(name, px, py){
+  return; // disabled: no purple .tent mirage overlays over the video
   const sp = tentSpec(name, px, py); if (!sp) return;
   const fw = frame.clientWidth, fh = frame.clientHeight;
   const w = sp.size/100*fw, h = w*3.5;
