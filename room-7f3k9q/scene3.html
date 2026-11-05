@@ -200,8 +200,9 @@ button{font-family:inherit;cursor:pointer}
 #goo{position:absolute;inset:0;pointer-events:none;z-index:7;opacity:0;background:radial-gradient(circle at 50% 60%,rgba(220,150,255,.95),rgba(140,40,220,.92) 35%,rgba(50,10,90,.97) 75%)}
 .blob{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f0c8ff,#9a3cf0 50%,#4a1080);pointer-events:none;z-index:8;box-shadow:0 0 18px rgba(190,110,255,.8)}
 /* tentacle mirage + slime drops */
-.tent{position:absolute;left:0;top:0;pointer-events:none;will-change:transform,opacity;opacity:0;transform-origin:50% 0;filter:drop-shadow(0 0 6px rgba(200,120,255,.9)) drop-shadow(0 0 14px rgba(150,60,255,.5))}
-.tent svg{display:block;width:100%;height:100%;overflow:visible}
+.tent{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;touch-action:manipulation;z-index:5;will-change:transform,opacity;opacity:0;transform-origin:50% 0;filter:drop-shadow(0 0 6px rgba(200,120,255,.9)) drop-shadow(0 0 14px rgba(150,60,255,.5))}
+.tent svg{display:block;width:100%;height:100%;overflow:visible;pointer-events:none}
+.tent.retract{pointer-events:none}
 .slitfx{position:absolute;pointer-events:none;z-index:4;mix-blend-mode:normal;filter:drop-shadow(0 0 6px rgba(230,130,255,.85))}
 .slitfx svg{display:block;width:100%;height:auto;overflow:visible}
 .slitfx svg *{transform-box:fill-box;transform-origin:50% 50%}
@@ -921,12 +922,33 @@ function buildSpots(spots){
     for (const poly of spots[name]){
       const el = document.createElementNS(NS,'polygon');
       el.setAttribute('points', poly.map(p=>p.join(',')).join(' ')); el.dataset.spot = name; if (ROUGH.has(name)) el.classList.add('rough');
-      el.addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); touchSpot(name, e); });
+      el.addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); beginSpotGesture(name, e); });
       svg.appendChild(el);
       const cx = poly.reduce((a,p)=>a+p[0],0)/poly.length, cy = poly.reduce((a,p)=>a+p[1],0)/poly.length;
       const lb=document.createElement('span'); lb.textContent=SPOT_LABEL[name]||name; lb.dataset.spot=name; lb.style.left=cx+'%'; lb.style.top=cy+'%'; labels.appendChild(lb);
     }
   }
+}
+/* Tap vs slide on Slit (Cock): travel >= SLIDE_PX before pointerup => open; else probe-in. Other spots stay tap-only. */
+const SLIDE_PX = 18;
+function beginSpotGesture(name, e){
+  if (name!=='Cock'){ touchSpot(name, e, 'tap'); return; }
+  const pid = e.pointerId, sx = e.clientX, sy = e.clientY;
+  let slid = false;
+  const onMove = ev=>{
+    if (ev.pointerId!==pid) return;
+    if (Math.hypot(ev.clientX-sx, ev.clientY-sy) >= SLIDE_PX) slid = true;
+  };
+  const finish = ev=>{
+    if (ev.pointerId!==pid) return;
+    window.removeEventListener('pointermove', onMove, true);
+    window.removeEventListener('pointerup', finish, true);
+    window.removeEventListener('pointercancel', finish, true);
+    touchSpot(name, e, slid ? 'slide' : 'tap');
+  };
+  window.addEventListener('pointermove', onMove, true);
+  window.addEventListener('pointerup', finish, true);
+  window.addEventListener('pointercancel', finish, true);
 }
 function pick(key, lines){ let idx; do { idx = Math.floor(Math.random()*lines.length); } while (lines.length>1 && idx===lastPick[key]); lastPick[key]=idx; return idx; }
 function ripple(e){
@@ -950,46 +972,69 @@ function drop(x, y, fh){
   d.animate([{transform:'translate(-50%,-50%) scale(.4)',opacity:0},{transform:'translate(-50%,-50%) scale(1)',opacity:1,offset:.15},{transform:`translate(-50%,${fh*.18}px) scale(.8,1.3)`,opacity:0}],{duration:900+Math.random()*400,easing:'ease-in',fill:'forwards'}).onfinish=()=>d.remove();
 }
 const SOUNDS = {Cock:'*shlick*', Balls:'*squish*', Hole:'*squelch*'};
-function touchSpot(name, e){
+function touchSpot(name, e, gesture){
   if (phase!=='slime' || mode!=='touch') return;
+  gesture = gesture || 'tap';
   const rough = ROUGH.has(name);
   const [x,y,r] = ripple(e); const px=x/r.width*100, py=y/r.height*100;
   touches++; totalTouches++; hint.classList.add('hide');
-  tentacle(name, px, py); for (let k=0;k<3;k++) setTimeout(()=>drop(x+(Math.random()-.5)*30, y, r.height), 150+k*180);
+  if (!(name==='Cock' && gesture==='slide')) tentacle(name, px, py);
+  for (let k=0;k<3;k++) setTimeout(()=>drop(x+(Math.random()-.5)*30, y, r.height), 150+k*180);
   const p = SCRIPT.panels[panelIdx], lines = p.spots[name];
   const idx = pick(panelIdx+':'+name, lines), ln = lines[idx];
   showLine({who:'Ophion', dir:'', text:ln.text, expr:ln.expr, act:ln.act}, {pulse:true});
   textEl.dataset.spot=name; textEl.dataset.idx=idx;
   if (rough) splat(SOUNDS[name], px, py-6);
-  if (name==='Cock') slitFx();
+  if (name==='Cock') slitFx(gesture==='slide' ? 'open' : 'probe');
   struggle(0.55+Math.random()*0.4);
   updateCounter();
 }
 
-/* ---------- slit tap: his slit visibly bobs, throbs and parts as the tentacles stroke it open ---------- */
-function slitFx(){
+/* ---------- slit FX: tap = tentacle tip probes into the opening; slide = lips open wide and hold ---------- */
+function slitFx(mode){
+  mode = mode || 'probe';
   const z=ZONES.Cock[0], cx=z.reduce((a,p)=>a+p[0],0)/z.length, cy=z.reduce((a,p)=>a+p[1],0)/z.length;
   const fw=frame.clientWidth, w=Math.max(64, .17*fw);
   fx.querySelectorAll('.slitfx').forEach(o=>o.remove());
-  const el=document.createElement('div'); el.className='slitfx'; el.style.left=cx+'%'; el.style.top=cy+'%'; el.style.width=w+'px';
+  const el=document.createElement('div'); el.className='slitfx'; el.dataset.mode=mode; el.style.left=cx+'%'; el.style.top=cy+'%'; el.style.width=w+'px';
   const open = Math.min(1, .45 + .18*panelIdx);            // opens wider each panel (his cock is out from panel 2 on)
-  el.innerHTML='<svg viewBox="-60 -30 120 60"><defs><radialGradient id="slG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb3d9"/><stop offset=".55" stop-color="#d0559a"/><stop offset="1" stop-color="#6d1d58"/></radialGradient></defs>'
-    + '<ellipse class="sl-glow" cx="0" cy="0" rx="50" ry="18" fill="rgba(220,120,255,.35)"/>'
+  const openWide = Math.min(1.35, open * 1.55 + .25);      // slide opens clearly wider than a tap throb
+  el.innerHTML='<svg viewBox="-60 -40 120 80"><defs><radialGradient id="slG" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb3d9"/><stop offset=".55" stop-color="#d0559a"/><stop offset="1" stop-color="#6d1d58"/></radialGradient>'
+    + '<linearGradient id="slProbe" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#6b1fb8"/><stop offset=".55" stop-color="#c46bff"/><stop offset="1" stop-color="#e3a8ff"/></linearGradient></defs>'
+    + '<ellipse class="sl-glow" cx="0" cy="0" rx="50" ry="22" fill="rgba(220,120,255,.35)"/>'
     + '<path class="sl-lips" d="M-44 0 C-26 -15 26 -15 44 0 C26 15 -26 15 -44 0Z" fill="none" stroke="#b44ce0" stroke-width="5" stroke-linejoin="round"/>'
     + '<ellipse class="sl-open" cx="0" cy="0" rx="36" ry="11" fill="url(#slG)"/>'
+    + '<path class="sl-probe" d="M0 34 C-4 22 -5 10 -2 0 C-1 -6 1 -6 2 0 C5 10 4 22 0 34Z" fill="url(#slProbe)" stroke="#f0d0ff" stroke-width="1.2" opacity="0"/>'
     + '<ellipse class="sl-tip" cx="0" cy="0" rx="13" ry="9" fill="#ff9fcf" stroke="#c4448e" stroke-width="2"/>'
     + '<circle class="sl-drip" cx="6" cy="6" r="3.2" fill="#e8c6ff"/></svg>';
   fx.appendChild(el);
-  const D=RM?700:1700, q=el.querySelector.bind(el);
-  el.animate([{transform:'translate(-50%,-50%) translateY(0) rotate(0)',opacity:0},{opacity:1,offset:.08},
-    {transform:'translate(-50%,-50%) translateY(-7%) rotate(-3deg)',offset:.25},{transform:'translate(-50%,-50%) translateY(5%) rotate(2deg)',offset:.45},
-    {transform:'translate(-50%,-50%) translateY(-5%) rotate(-2deg)',offset:.65},{transform:'translate(-50%,-50%) translateY(2%) rotate(1deg)',offset:.85,opacity:1},
-    {transform:'translate(-50%,-50%) translateY(0) rotate(0)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'}).onfinish=()=>el.remove();
-  const o=open;
-  q('.sl-open').animate([{transform:'scaleY(.08)'},{transform:`scaleY(${o})`,offset:.3},{transform:`scaleY(${o*.55})`,offset:.48},{transform:`scaleY(${Math.min(1.15,o*1.12)})`,offset:.7},{transform:'scaleY(.25)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
-  q('.sl-lips').animate([{transform:'scaleY(.35)'},{transform:`scaleY(${.6+o*.5})`,offset:.3},{transform:`scaleY(${.5+o*.3})`,offset:.48},{transform:`scaleY(${.65+o*.55})`,offset:.7},{transform:'scaleY(.4)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
-  q('.sl-tip').animate([{transform:'translateY(0) scale(.2)',opacity:0},{transform:`translateY(${-6*o}px) scale(${.5+o*.6})`,opacity:1,offset:.32},{transform:`translateY(${-2*o}px) scale(${.45+o*.45})`,offset:.5},{transform:`translateY(${-9*o}px) scale(${.55+o*.7})`,opacity:1,offset:.72},{transform:'translateY(0) scale(.25)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'});
-  q('.sl-glow').animate([{opacity:.2},{opacity:1,offset:.3},{opacity:.5,offset:.5},{opacity:1,offset:.72},{opacity:0}],{duration:D,fill:'forwards'});
+  const D = RM ? 700 : (mode==='open' ? 2100 : 1700), q=el.querySelector.bind(el);
+  const o = mode==='open' ? openWide : open;
+  if (mode==='open'){
+    el.animate([{transform:'translate(-50%,-50%) scale(1,1)',opacity:0},{opacity:1,offset:.06},
+      {transform:'translate(-50%,-50%) scale(1.06,1.12)',offset:.22},{transform:'translate(-50%,-50%) scale(1.04,1.18)',offset:.55,opacity:1},
+      {transform:'translate(-50%,-50%) scale(1.02,1.1)',offset:.82,opacity:1},{transform:'translate(-50%,-50%) scale(1,1)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'}).onfinish=()=>el.remove();
+    q('.sl-open').animate([{transform:'scaleY(.1)'},{transform:`scaleY(${o})`,offset:.22},{transform:`scaleY(${o})`,offset:.72},{transform:'scaleY(.2)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    q('.sl-lips').animate([{transform:'scaleY(.35)'},{transform:`scaleY(${.85+o*.55})`,offset:.22},{transform:`scaleY(${.9+o*.6})`,offset:.72},{transform:'scaleY(.4)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    q('.sl-tip').animate([{transform:'translateY(0) scale(.15)',opacity:0},{transform:`translateY(${-4*o}px) scale(${.35+o*.35})`,opacity:.85,offset:.25},{transform:`translateY(${-3*o}px) scale(${.3+o*.3})`,opacity:.7,offset:.7},{transform:'translateY(0) scale(.2)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    q('.sl-probe').animate([{transform:'translateY(18px) scaleY(.4)',opacity:0},{opacity:0,offset:1}],{duration:D,fill:'forwards'});
+  } else {
+    el.animate([{transform:'translate(-50%,-50%) translateY(0) rotate(0)',opacity:0},{opacity:1,offset:.08},
+      {transform:'translate(-50%,-50%) translateY(-4%) rotate(-2deg)',offset:.28},{transform:'translate(-50%,-50%) translateY(3%) rotate(1deg)',offset:.55},
+      {transform:'translate(-50%,-50%) translateY(-2%) rotate(-1deg)',offset:.78,opacity:1},{transform:'translate(-50%,-50%) translateY(0) rotate(0)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'}).onfinish=()=>el.remove();
+    q('.sl-open').animate([{transform:'scaleY(.08)'},{transform:`scaleY(${o*.85})`,offset:.28},{transform:`scaleY(${o*1.05})`,offset:.5},{transform:`scaleY(${o*.7})`,offset:.75},{transform:'scaleY(.2)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    q('.sl-lips').animate([{transform:'scaleY(.35)'},{transform:`scaleY(${.55+o*.35})`,offset:.28},{transform:`scaleY(${.6+o*.4})`,offset:.5},{transform:`scaleY(${.5+o*.3})`,offset:.75},{transform:'scaleY(.4)'}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    // purple tip pushes into the opening (going in)
+    q('.sl-probe').animate([
+      {transform:'translateY(22px) scale(.55,.45)',opacity:0},
+      {transform:'translateY(10px) scale(.75,.7)',opacity:.95,offset:.18},
+      {transform:'translateY(-2px) scale(1,.95)',opacity:1,offset:.38},
+      {transform:'translateY(-8px) scale(1.05,1.05)',opacity:1,offset:.58},
+      {transform:'translateY(6px) scale(.8,.75)',opacity:.7,offset:.82},
+      {transform:'translateY(24px) scale(.5,.35)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+    q('.sl-tip').animate([{transform:'translateY(0) scale(.2)',opacity:0},{transform:`translateY(${-5*o}px) scale(${.45+o*.4})`,opacity:.9,offset:.35},{transform:`translateY(${-7*o}px) scale(${.5+o*.45})`,opacity:.85,offset:.58},{transform:'translateY(0) scale(.25)',opacity:0}],{duration:D,easing:'ease-in-out',fill:'forwards'});
+  }
+  q('.sl-glow').animate([{opacity:.2},{opacity:1,offset:.28},{opacity:.55,offset:.55},{opacity:.9,offset:.75},{opacity:0}],{duration:D,fill:'forwards'});
   q('.sl-drip').animate([{transform:'translateY(0)',opacity:0},{transform:'translateY(0)',opacity:0,offset:.5},{transform:'translateY(4px)',opacity:1,offset:.62},{transform:'translateY(24px) scaleY(1.5)',opacity:0}],{duration:D,easing:'ease-in',fill:'forwards'});
 }
 
@@ -1002,12 +1047,23 @@ function tentSpec(name, px, py){
     case 'Chest':  return {from: px<50?-70:70, act:'coil', amp:4, size:8};
     case 'Nipple': return {from: px<50?-50:50, act:'suck', amp:1.5, size:5};
     case 'Abs':    return {from: px<50?-30:30, act:'stroke', amp:4, size:8};
-    case 'Cock':   return {from: -80, act:'stroke', amp:9, size:8};
+    case 'Cock':   return {from: 12, act:'probe', amp:14, size:9};   // from below: tip probes into his slit
     case 'Balls':  return {from: 20, act:'suck', amp:2, size:7};
     case 'Hole':   return {from: px<51?-35:35, act:'coil', amp:5, size:10};   // grips his hips/ass and drives them up (never enters him)
     case 'Thigh':  return {from: px<50?-40:40, act:'coil', amp:5, size:9};
   }
   return null;
+}
+function retractTent(el){
+  if (!el || el.dataset.retracting) return;
+  el.dataset.retracting='1'; el.classList.add('retract');
+  try { el.getAnimations().forEach(a=>{ try{ a.commitStyles(); }catch(_){} a.cancel(); }); } catch(_){}
+  const tr = el.style.transform || getComputedStyle(el).transform || 'none';
+  const op = el.style.opacity || getComputedStyle(el).opacity || '0.85';
+  el.animate([
+    {transform:tr, opacity:op},
+    {transform: tr==='none' ? 'scale(0.35, 0.08)' : tr+' scale(0.35, 0.08)', opacity:0}
+  ],{duration:RM?220:320, easing:'ease-in', fill:'forwards'}).onfinish=()=>el.remove();
 }
 function tentacle(name, px, py){
   const sp = tentSpec(name, px, py); if (!sp) return;
@@ -1016,23 +1072,34 @@ function tentacle(name, px, py){
   const el = document.createElement('div'); el.className='tent'; el.dataset.act=sp.act;
   el.style.width=w+'px'; el.style.height=h+'px';
   el.innerHTML = '<svg viewBox="0 0 40 140"><use href="#sTent"/></svg>';
+  el.addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); retractTent(el); });
   fx.appendChild(el);
   const X = px/100*fw - w/2, Y = py/100*fh, rot = 180 + sp.from;   // tip at the touch point, body trailing away
   const rad = sp.from*Math.PI/180, ux = Math.sin(rad), uy = Math.cos(rad), A = sp.amp/100*fw;
   const frames=[], S=56;
   for (let i=0;i<=S;i++){
     const t=i/S, env=Math.min(1,t/0.14)*Math.min(1,(1-t)/0.2);
-    const reach = (1-env) * h*0.6;                     // slithers in from offscreen-ish and back out
+    let reach;
+    if (sp.act==='probe'){
+      // approach from outside, push tip past the contact point into the slit, then withdraw
+      if (t < 0.16) reach = (1 - t/0.16) * h * 0.55;
+      else if (t > 0.78) reach = ((t - 0.78) / 0.22) * h * 0.5;
+      else reach = -h * (0.08 + 0.16 * Math.sin(Math.min(1, (t - 0.16) / 0.62) * Math.PI));
+    } else {
+      reach = (1-env) * h*0.6;                     // slithers in from offscreen-ish and back out
+    }
     let d=0, wig=0, sc=1, sx=1;
     if (sp.act==='stroke'){ d = A*Math.sin(t*3*2*Math.PI); wig = 8*Math.sin(t*6*Math.PI); }
     else if (sp.act==='coil'){ wig = 22*Math.sin(t*4*2*Math.PI); sx = 1+0.15*Math.sin(t*8*Math.PI); }
     else if (sp.act==='suck'){ const q=Math.abs(Math.sin(t*4*Math.PI)); sc = 1-0.12*q; sx = 1+0.2*q; wig = 4*Math.sin(t*5*Math.PI); }
-    else if (sp.act==='probe'){ d = A*(0.5+0.5*Math.sin(t*3*2*Math.PI - Math.PI/2)); wig = 5*Math.sin(t*7*Math.PI); }
+    else if (sp.act==='probe'){ d = A * 0.22 * Math.sin(t * 5 * Math.PI); wig = 4*Math.sin(t*6*Math.PI); sc = 1 - 0.06*Math.sin(t*3*Math.PI); }
     const off = reach + d;
     const tx = X + ux*off, ty = Y + uy*off;
-    frames.push({transform:`translate(${tx.toFixed(1)}px,${ty.toFixed(1)}px) rotate(${(rot+wig).toFixed(1)}deg) scale(${(sc*sx).toFixed(3)},${sc.toFixed(3)})`, opacity:(0.88*env).toFixed(3), offset:t});
+    const op = sp.act==='probe' ? Math.min(1, t/0.12) * Math.min(1, (1-t)/0.16) * 0.92 : 0.88*env;
+    frames.push({transform:`translate(${tx.toFixed(1)}px,${ty.toFixed(1)}px) rotate(${(rot+wig).toFixed(1)}deg) scale(${(sc*sx).toFixed(3)},${sc.toFixed(3)})`, opacity:op.toFixed(3), offset:t});
   }
-  el.animate(frames,{duration:RM?600:TENT_DUR,easing:'linear',fill:'forwards'}).onfinish = ()=>el.remove();
+  const anim = el.animate(frames,{duration:RM?600:TENT_DUR,easing:'linear',fill:'forwards'});
+  anim.onfinish = ()=>{ if (!el.dataset.retracting) el.remove(); };
 }
 
 /* ---------- boot ---------- */
