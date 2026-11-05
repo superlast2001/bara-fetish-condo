@@ -160,7 +160,7 @@ button{font-family:inherit;cursor:pointer}
 .mbox.carry::after{content:"👆";position:absolute;top:-70%;left:50%;transform:translateX(-50%);font-size:clamp(14px,2.4vw,24px);animation:bob 1s ease-in-out infinite alternate}
 @keyframes boxGlow{from{filter:drop-shadow(0 4px 5px rgba(70,40,15,.22)) drop-shadow(0 0 2px rgba(226,198,255,.6))}to{filter:drop-shadow(0 0 4px #ecd8ff) drop-shadow(0 0 12px rgba(200,120,255,.9))}}
 @keyframes bob{to{transform:translate(-50%,-25%)}}
-#me{position:absolute;left:57%;top:66%;width:clamp(54px,8.0%,148px);transform:translate(-50%,-100%);z-index:2;animation:idle 2.6s ease-in-out infinite}
+#me{position:absolute;left:63%;top:76%;width:clamp(54px,8.0%,148px);transform:translate(-50%,-100%);z-index:5;animation:idle 2.6s ease-in-out infinite}
 #me .body{position:relative;width:100%;transition:transform .15s;transform-origin:50% 100%}
 #me .spr{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none;pointer-events:none;filter:drop-shadow(0 1px 1.2px rgba(60,35,15,.22))}
 #me .coat{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 35% 20%,rgba(255,235,255,.95) 0 6%,rgba(0,0,0,0) 14%),linear-gradient(160deg,#f0c8ff,#a94cf5 50%,#5a1aa8);-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
@@ -482,7 +482,8 @@ function stopRideBob(){
   if (td){ td.classList.remove('on'); td.innerHTML=''; }
   vid.classList.remove('hip-drive','ride-cut');
   vid.style.animation='';
-  if (frame.classList.contains('still')) setStill(false);  // restore idle breath after drive
+  // Keep still while on a video panel (no whole-image breath). Room mode restores breath in showRoom.
+  if (curKey!=='video' && frame.classList.contains('still')) setStill(false);
 }
 function paintTentDrive(){
   // Purple guide strokes removed (same complaint as .tent mirage); hipDrive keeps the motion.
@@ -497,32 +498,24 @@ function paintTentDrive(){
     + '</svg>';
 }
 function startRideBob(kind){
-  // kind: 'sink' | 'hard' | 'cum' — tentacle-driven Ophion hip thrust; player POV stays still
-  const amp = kind==='cum' ? 14 : kind==='hard' ? 11 : 8;
-  const dur = kind==='cum' ? 0.40 : kind==='hard' ? 0.48 : 0.58;
-  const tok=++rideTok; rideOn=true;
-  frame.style.setProperty('--ride-amp', amp+'px');
-  frame.style.setProperty('--ride-dur', dur+'s');
-  setStill(true);                         // kill breath; hipDrive owns the motion
-  // clear any leftover POV cutout bob from older builds
+  // kind kept for API/call sites. Old behavior paused #vid and CSS-transformed the whole
+  // frame (hipDrive) — read as ken-burns / sliding image + choppy skips, not a gif.
+  // Now: leave the panel segment looping continuously; suppress whole-frame breath only.
+  rideTok++; rideOn=false;
+  setStill(true);
   const u=$('rideUnder'), r=$('ride');
   if (u) u.classList.remove('on');
   if (r){ r.classList.remove('on'); r.style.animation='none'; }
-  vid.classList.remove('ride-cut');
-  paintTentDrive(); // clears #tentDrive; do not add .on (no purple guide strokes)
-  const arm = ()=>{
-    if (tok!==rideTok) return;
-    if (vid.readyState<2){ setTimeout(arm, 80); return; }
-    if (seg){ const mid=(seg[0]+seg[1])/2; try { vid.currentTime = mid; } catch(_){ } }
-    const go=()=>{
-      if (tok!==rideTok) return;
-      try { vid.pause(); } catch(_){}
-      vid.classList.add('hip-drive');
-      vid.style.animation='none'; void vid.offsetWidth; vid.style.animation='';
+  vid.classList.remove('hip-drive','ride-cut');
+  vid.style.animation='';
+  paintTentDrive();
+  if (seg && !slitOpenOn){
+    const arm=()=>{
+      if (vid.readyState<2){ setTimeout(arm, 80); return; }
+      if (vid.paused) vid.play().catch(()=>{});
     };
-    setTimeout(go, 60);
-  };
-  arm();
+    arm();
+  }
 }
 function rideKindFor(){
   if (phase==='climax') return 'cum';
@@ -536,20 +529,28 @@ function syncRideBob(){
   if (k) startRideBob(k); else stopRideBob();
 }
 
-function showRoom(){ stopRideBob(); seg=null; vid.pause(); vid.classList.add('hide'); base.classList.remove('hide'); $('room').classList.remove('hide'); base.src=IMG.room; curKey='room'; fitFrame(); setBreath(5); }
+function showRoom(){ stopRideBob(); seg=null; vid.pause(); vid.classList.add('hide'); base.classList.remove('hide'); $('room').classList.remove('hide'); base.src=IMG.room; curKey='room'; frame.style.transition=''; fitFrame(); setBreath(5); setStill(false); }
 function showVideo(i, once){
   stopRideBob();
-  seg = SCRIPT.segments[i]; segOnce = !!once; curKey='video'; fitFrame(); setBreath(once ? 1.2 : BREATH[i]||2);
+  // Panel CG must stay still (no #breath ken-burns / whole-image slide). Motion = looping video action.
+  seg = SCRIPT.segments[i]; segOnce = !!once; curKey='video';
+  frame.style.transition = 'none'; // snap pan; don't ease the whole frame across the stage
+  fitFrame(); setStill(true);
   base.classList.add('hide'); $('room').classList.add('hide'); $('strands').getAnimations().forEach(x=>x.cancel()); $('strands').style.opacity=0; $('strands').innerHTML=''; vid.classList.remove('hide');
   try { vid.currentTime = seg[0] + 0.02; } catch(_){}
   const p = vid.play(); if (p && p.catch) p.catch(()=>{});
 }
 (function loop(){
+  // Continuous gif-like panel loop: keep playing the segment; only wrap at the end.
+  // (No mid-segment seeks. hipDrive pause path removed so this actually runs during sex panels.)
   if (seg && vid.readyState>=1 && !rideOn && !slitOpenOn){
     const t = vid.currentTime;
-    if (t >= seg[1]-0.06 || t < seg[0]-0.5 || vid.ended){
+    if (t >= seg[1]-0.04 || t < seg[0]-0.25 || vid.ended){
       if (segOnce){ if (!vid.paused) vid.pause(); }
-      else { vid.currentTime = seg[0]+0.02; if (vid.paused) vid.play().catch(()=>{}); }
+      else {
+        try { vid.currentTime = seg[0] + 0.01; } catch(_){}
+        if (vid.paused) vid.play().catch(()=>{});
+      }
     }
   }
   requestAnimationFrame(loop);
@@ -667,7 +668,7 @@ function mkBox(b, cls){ const d=document.createElement('div'); d.className='mbox
 
 /* ----- room chibis: Eurynome and Ophion (feet-anchored, sized off the MC sprite so all three read the same) ----- */
 const OPH_FOR = {angry:'angry', shocked:'surprised', flustered:'blush', stern:'idle', smug:'smile', aroused:'blush'};
-const EU_AT = [62,77], OPH_AT = [49.5,68.5], OPH_STUCK = [53.6,67];
+const EU_SOLO = [58,74], EU_AT = [36,71], EU_STUCK = [34,70], OPH_AT = [49.5,68.5], OPH_STUCK = [51,66.5], ME_AT = [63,76];
 const OPH_WALK = [1,2,3,4,5,6,7,8].map(i=>'oph_walk'+i);
 let ophLock = null;
 function chrUnit(){ const m=$('me'); const w = m ? m.offsetWidth : Math.min(148, Math.max(54, frame.clientWidth*0.08)); return w*2.08; }
@@ -698,21 +699,29 @@ function chrWaddle(el, ms){
   setTimeout(()=>{ clearInterval(el._b); b.style.transform=''; }, RM?300:ms);
 }
 function euLeave(){ const e=$('eu'); if (!e || e.classList.contains('gone')) return; e.dataset.leaving='1'; chrMove(e, [104,80], 1400); setTimeout(()=>e.classList.add('gone'), RM?150:900); setTimeout(()=>e.remove(), RM?400:1500); }
+function footOrder(){
+  // isometric: higher top% = closer to camera → higher z so MC in front-right is not buried under Ophion
+  document.querySelectorAll('#me,.chr').forEach(el=>{
+    const top = el.style.top ? parseFloat(el.style.top) : (el.id==='me' ? ME_AT[1] : 50);
+    el.style.zIndex = String(Math.round(2 + top));
+  });
+}
 function buildRoom(withMe, cast){
   const r=$('room'); r.innerHTML=''; cast=cast||{};
   DECO.forEach(b=>mkBox(b,'deco'));
   BOXES.forEach((b,i)=>{ if (i>=boxesDone){ const d=mkBox(b,'todo'); d.dataset.i=i; d.addEventListener('pointerdown', e=>{ e.preventDefault(); e.stopPropagation(); carryBox(i); }); } });
-  if (withMe){ clearInterval(walkTimer); const m=document.createElement('div'); m.id='me'; m.innerHTML=ME_HTML; if (typeof withMe==='string') m.className=withMe; m.insertAdjacentHTML('afterbegin','<i class="foot"></i>'); r.appendChild(m); setPose('front'); }
   if (cast.eu) mkChr('eu', 'eu_room', cast.eu, .95);
   if (cast.oph) mkChr('oph', cast.oph[2]||'oph_front', cast.oph, 1.02);
-  fitFrame(); sizeChars(); fitFrame();
+  if (withMe){ clearInterval(walkTimer); const m=document.createElement('div'); m.id='me'; m.innerHTML=ME_HTML; if (typeof withMe==='string') m.className=withMe; m.insertAdjacentHTML('afterbegin','<i class="foot"></i>');
+    const at = cast.me || ME_AT; m.style.left=at[0]+'%'; m.style.top=at[1]+'%'; r.appendChild(m); setPose('front'); }
+  footOrder(); fitFrame(); sizeChars(); fitFrame(); footOrder();
 }
 addEventListener('resize', ()=>{ sizeChars(); if ($('strands').innerHTML && !$('room').classList.contains('hide')) stuckFx(true); });
 
 /* ----- 1. intro: moving day in the living room ----- */
 function runIntro(){
   phase='intro'; panelIdx=-1; boxesDone=0; resetFx(); clearSpots(); counterEl.classList.add('hide');
-  showRoom(); buildRoom(true, {eu:EU_AT}); setLook('day'); setTitle('Scene 3 — Moving day');
+  showRoom(); buildRoom(true, {eu:EU_SOLO, me:ME_AT}); setLook('day'); setTitle('Scene 3 — Moving day');
   flashChapter('Saturday afternoon, the couple\u2019s condo');
   playLines(SCRIPT.intro, showTransformBtn);
 }
@@ -753,7 +762,9 @@ function runAsk(){
   phase='ask'; setTitle('Scene 3 — A little help');
   lineHook = l=>{
     if (l.narr && /steps out of the hallway/.test(l.narr) && !$('oph')){
+      const e=$('eu'); if (e) chrMove(e, EU_AT, 1100); // yield front-right so MC can go to Ophion
       const o=mkChr('oph', 'oph_walk1', [-8, OPH_AT[1]], 1.02); chrMove(o, OPH_AT, 1500, OPH_WALK, 'oph_surprised');
+      footOrder();
     }
   };
   playLines(SCRIPT.ask, ()=>{ lineHook=null; runBoxes(); });
@@ -761,7 +772,7 @@ function runAsk(){
 
 /* ----- 3. carrying boxes (mini-beat); the third one sticks you to him ----- */
 function runBoxes(){
-  phase='boxes'; setTitle('Scene 3 — Sorting boxes'); boxesDone=Math.min(boxesDone,2); buildRoom('aura coated', {eu:EU_AT, oph:[...OPH_AT,'oph_idle']}); nextBox();
+  phase='boxes'; setTitle('Scene 3 — Sorting boxes'); boxesDone=Math.min(boxesDone,2); buildRoom('aura coated', {eu:EU_AT, oph:[...OPH_AT,'oph_idle'], me:ME_AT}); nextBox();
 }
 function nextBox(){
   mode='boxes'; adv.classList.add('hide');
@@ -789,17 +800,20 @@ function carryBox(i){
   showLine({narr:b.narr});
   setTimeout(()=>{
     if (phase!=='boxes') return;
-    if (last){ stuckFx(); if (me) me.classList.add('stuck'); frame.animate([{transform:'none'},{transform:'translate(-6px,2px) rotate(-.5deg)'},{transform:'translate(5px,-2px) rotate(.5deg)'},{transform:'none'}],{duration:420}); }
+    if (last){ if (me){ me.style.left=ME_AT[0]+'%'; me.style.top=ME_AT[1]+'%'; me.classList.add('stuck'); footOrder(); } stuckFx(); frame.animate([{transform:'none'},{transform:'translate(-6px,2px) rotate(-.5deg)'},{transform:'translate(5px,-2px) rotate(.5deg)'},{transform:'none'}],{duration:420}); }
     playLines([{who:'Ophion', dir:'', text:b.text, expr:b.expr}], last ? runStuck : nextBox);
     queue.unshift({narr:b.narr}); qi=1;            // keep the narration in the queue so Back/advance stays consistent
   }, RM?250:1250);
 }
 function stuckFx(quiet){
-  // light, translucent slime strands stretched from the MC (his left side) to Ophion (his right side)
+  // light, translucent slime strands stretched from the MC (front-right) to Ophion (center / left-of-MC)
   const sv=$('strands'); sv.innerHTML=''; const m=$('me'), o=$('oph'), W=$('room').clientWidth||1, H=$('room').clientHeight||1;
+  if (m){ m.style.left=ME_AT[0]+'%'; m.style.top=ME_AT[1]+'%'; }
+  if (o){ o.style.left=OPH_STUCK[0]+'%'; o.style.top=OPH_STUCK[1]+'%'; }
+  footOrder();
   const box = (el, at)=>{ const x = el ? el.offsetLeft : at[0]/100*W, y = el ? el.offsetTop : at[1]/100*H;
     return {x:x/W*100, y:y/H*100, w:(el?el.offsetWidth:W*.08)/W*100, h:(el?el.offsetHeight:H*.28)/H*100}; };
-  const A = box(m, [57,66]), B = o ? {x:OPH_STUCK[0], y:OPH_STUCK[1], w:o.offsetWidth/W*100, h:o.querySelector('.cs').offsetHeight/H*100} : box(null, OPH_STUCK);
+  const A = box(m, ME_AT), B = o ? {x:OPH_STUCK[0], y:OPH_STUCK[1], w:o.offsetWidth/W*100, h:o.querySelector('.cs').offsetHeight/H*100} : box(null, OPH_STUCK);
   for (let k=0;k<8;k++){
     const t=(k+.5)/8, x1=A.x - A.w*(.18+.12*Math.random()), y1=A.y - A.h*(.22+.5*t), x2=B.x + B.w*(.14+.1*Math.random()), y2=B.y - B.h*(.2+.5*t+(Math.random()-.5)*.08);
     const pth=document.createElementNS('http://www.w3.org/2000/svg','path');
@@ -811,7 +825,7 @@ function stuckFx(quiet){
 }
 function runStuck(){
   phase='stuck'; setLook('day slime'); setTitle('Scene 3 — Stuck');
-  if (!$('strands').innerHTML || !$('oph')){ buildRoom('aura coated stuck', {eu:EU_AT, oph:[...OPH_STUCK,'oph_surprised']}); stuckFx(); }
+  if (!$('strands').innerHTML || !$('oph')){ buildRoom('aura coated stuck', {eu:EU_STUCK, oph:[...OPH_STUCK,'oph_surprised'], me:ME_AT}); stuckFx(); }
   flashChapter('Stuck.');
   lineHook = l=>{
     if (l.who==='Eurynome' && /genkan/.test(l.dir)) euLeave();
