@@ -469,7 +469,7 @@ let seg=null, segOnce=false;
 /* ---------- POV ride bob: player (bottom cutout) bounces; Ophion's frozen video stays still ---------- */
 let rideOn=false, rideTok=0;
 function stopRideBob(){
-  rideOn=false; rideTok++; slitOpenTok++;
+  rideOn=false; rideTok++; slitOpenTok++; slitOpenOn=false;
   const u=$('rideUnder'), r=$('ride'), td=$('tentDrive');
   if (u){ u.classList.remove('on'); try{u.getContext('2d').clearRect(0,0,u.width||1,u.height||1);}catch(_){ } }
   if (r){ r.classList.remove('on'); r.style.animation='none'; try{r.getContext('2d').clearRect(0,0,r.width||1,r.height||1);}catch(_){ } }
@@ -539,7 +539,7 @@ function showVideo(i, once){
   const p = vid.play(); if (p && p.catch) p.catch(()=>{});
 }
 (function loop(){
-  if (seg && vid.readyState>=1 && !rideOn){
+  if (seg && vid.readyState>=1 && !rideOn && !slitOpenOn){
     const t = vid.currentTime;
     if (t >= seg[1]-0.06 || t < seg[0]-0.5 || vid.ended){
       if (segOnce){ if (!vid.paused) vid.pause(); }
@@ -816,7 +816,7 @@ function runStuck(){
 
 /* ----- 4. the slime panels ----- */
 function enterPanel(i){
-  phase='slime'; panelIdx=i; touches=0; stayAt=0; lineHook=null; slitOpenTok++;
+  phase='slime'; panelIdx=i; touches=0; stayAt=0; lineHook=null; slitOpenTok++; slitOpenOn=false;
   chapter.classList.add('hide');
   setLook('slime'); const p = SCRIPT.panels[i];
   setTitle('Scene 3 — Sticky ' + p.n + ' / ' + SCRIPT.panels.length);
@@ -994,7 +994,7 @@ function touchSpot(name, e, gesture){
 }
 
 /* ---------- slit open via VIDEO (tentacles pry his slit) + tap insert FX ---------- */
-let slitOpenTok = 0;
+let slitOpenTok = 0, slitOpenOn = false;
 function playSlitOpen(){
   // Cue the Scene 3 beat where sticky tentacles pry / spread his slit (panel 1 art), then resume the current panel loop.
   // No purple floating .tent mirage coils — the video itself carries the tentacles.
@@ -1007,33 +1007,63 @@ function playSlitOpen(){
   const a = full[0] + span * 0.52;                // latter half: pry / cock emerging from the slit
   const b = full[1] - 0.06;
   const home = seg ? [seg[0], seg[1]] : null;
+  slitOpenOn = true;
   segOnce = true;
   seg = [a, b];
   try { vid.playbackRate = RM ? 1.2 : 1.08; } catch(_){}
-  try { vid.currentTime = a; } catch(_){}
-  const p = vid.play(); if (p && p.catch) p.catch(()=>{});
+
+  const restore = ()=>{
+    if (tok !== slitOpenTok) return;
+    slitOpenOn = false;
+    try { vid.playbackRate = 1; } catch(_){}
+    segOnce = false;
+    if (home) seg = home;
+    else if (SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
+    if (seg){
+      const mid = (seg[0] + seg[1]) / 2;
+      const back = ()=>{ if (tok !== slitOpenTok) return; vid.play().catch(()=>{}); };
+      const onSeeked = ()=>{ vid.removeEventListener('seeked', onSeeked); back(); };
+      vid.addEventListener('seeked', onSeeked);
+      try { vid.currentTime = mid; } catch(_){ back(); }
+    }
+  };
+
   const finish = ()=>{
     if (tok !== slitOpenTok) return;
     try { vid.pause(); } catch(_){}
-    setTimeout(()=>{
-      if (tok !== slitOpenTok) return;
-      try { vid.playbackRate = 1; } catch(_){}
-      segOnce = false;
-      if (home) seg = home;
-      else if (SCRIPT.segments[panelIdx]) seg = SCRIPT.segments[panelIdx];
-      if (seg){
-        const mid = (seg[0] + seg[1]) / 2;
-        try { vid.currentTime = mid; } catch(_){}
-        vid.play().catch(()=>{});
-      }
-    }, RM ? 260 : 720);
+    setTimeout(restore, RM ? 260 : 720);
   };
+
   const watch = ()=>{
     if (tok !== slitOpenTok) return;
-    if (vid.readyState >= 1 && (vid.currentTime >= b - 0.05 || (vid.paused && vid.currentTime >= a + 0.2))){ finish(); return; }
+    if (vid.readyState >= 1 && vid.currentTime >= b - 0.07){ finish(); return; }
     requestAnimationFrame(watch);
   };
-  requestAnimationFrame(watch);
+
+  const startPlay = ()=>{
+    if (tok !== slitOpenTok) return;
+    const p = vid.play();
+    if (p && p.catch) p.catch(()=>{});
+    requestAnimationFrame(watch);
+    // safety: if play/seek stalls, restore so touch mode is never stuck
+    setTimeout(()=>{ if (tok === slitOpenTok && slitOpenOn) finish(); }, RM ? 1600 : 4200);
+  };
+
+  const seekToOpen = ()=>{
+    if (tok !== slitOpenTok) return;
+    const onSeeked = ()=>{
+      vid.removeEventListener('seeked', onSeeked);
+      startPlay();
+    };
+    vid.addEventListener('seeked', onSeeked);
+    try {
+      if (Math.abs(vid.currentTime - a) < 0.04) { vid.removeEventListener('seeked', onSeeked); startPlay(); }
+      else vid.currentTime = a;
+    } catch(_){ vid.removeEventListener('seeked', onSeeked); startPlay(); }
+  };
+
+  if (vid.readyState >= 1) seekToOpen();
+  else vid.addEventListener('loadeddata', seekToOpen, {once:true});
 }
 function slitOpenGlow(){
   // Soft flesh bloom at the slit only — reinforces "opening" without purple scribble overlays.
